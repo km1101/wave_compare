@@ -43,7 +43,7 @@ from wave_compare.export import export_stats_excel
 st.set_page_config(page_title="Wave Platform Comparison", layout="wide", page_icon="🌊")
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
-DEFAULT_CSV = DATA_DIR / "wave.csv"
+DEFAULT_CSV = DATA_DIR / "wave_data.csv"
 EXPORT_DIR = Path(__file__).resolve().parent / "exports"
 
 
