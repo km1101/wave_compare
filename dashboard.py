@@ -47,6 +47,48 @@ DEFAULT_CSV = DATA_DIR / "wave_data.csv"
 EXPORT_DIR = Path(__file__).resolve().parent / "exports"
 
 
+def select_platform_pair(
+    selected_platforms: list[str],
+    *,
+    key_prefix: str = "",
+) -> tuple[str | None, str | None]:
+    """Reusable Platform A (reference) / Platform B (comparison) selectors.
+
+    Call from any tab or from the main page. ``key_prefix`` keeps widget keys
+    unique if the same control is rendered more than once in a run.
+    """
+    pair_ready = len(selected_platforms) >= 2
+    a_key = f"{key_prefix}platform_a" if key_prefix else "platform_a"
+    b_key = f"{key_prefix}platform_b" if key_prefix else "platform_b"
+
+    if pair_ready:
+        col_a_platform, col_b_platform = st.columns(2)
+        with col_a_platform:
+            platform_a = st.selectbox(
+                "Platform A (reference)",
+                selected_platforms,
+                index=0,
+                key=a_key,
+            )
+        with col_b_platform:
+            remaining = [p for p in selected_platforms if p != platform_a] or selected_platforms
+            if st.session_state.get(b_key) not in remaining:
+                st.session_state[b_key] = remaining[0]
+            platform_b = st.selectbox(
+                "Platform B (comparison)",
+                remaining,
+                index=0,
+                key=b_key,
+            )
+        return platform_a, platform_b
+
+    st.info(
+        "Select at least two platforms in the sidebar to unlock pairwise comparison, "
+        "agreement, and drift analysis."
+    )
+    return None, None
+
+
 # --------------------------------------------------------------------------
 # Sidebar: data + platform mapping
 # --------------------------------------------------------------------------
@@ -172,16 +214,20 @@ if len(date_range) == 2:
 # --------------------------------------------------------------------------
 st.title("Wave Platform Comparison Dashboard")
 st.caption(
-    f"Comparing **{', '.join(platforms_selected)}** across "
+    f"Selected platforms: **{', '.join(platforms_selected)}** · "
     f"**{len(params_selected)}** parameter(s), {df['timestamp'].min():%Y-%m-%d} → {df['timestamp'].max():%Y-%m-%d}"
 )
 
+platform_a, platform_b = select_platform_pair(platforms_selected)
+if platform_a is None or platform_b is None:
+    st.stop()
+
 tab_overview, tab_detail, tab_distrib, tab_period, tab_export = st.tabs(
-    ["📊 Multi-Parameter Overview", "🔍 Parameter Deep-Dive", "📈 Distributions", "🗓️ Period Agreement", "⬇️ Export"]
+    ["📊 Summary", "🔍 Time Series", "📈 Distribution", "🗓️ Agreement", "⬇️ Export"]
 )
 
-ref_platform = platforms_selected[0]
-other_platforms = platforms_selected[1:]
+ref_platform = platform_a
+other_platforms = [p for p in platforms_selected if p != platform_a]
 
 # Pre-compute aligned data + stats for every parameter, ref vs each other platform
 all_results = {}  # {(param, other): {"wide":df, "stats":obj}}
@@ -196,40 +242,50 @@ for param in params_selected:
             stats_obj = compute_comparison_stats(wide[ref_platform], wide[other])
             all_results[(param, other)] = {"wide": wide, "stats": stats_obj}
 
-# ---------------- Overview tab ----------------
-with tab_overview:
-    st.subheader(f"Summary — all parameters, reference = {ref_platform}")
-    for other in other_platforms:
-        rows = []
-        for param in params_selected:
-            res = all_results.get((param, other))
-            info = describe_param(param)
-            if res is None:
-                rows.append({"Parameter": f"{param} ({info.label})", "N": 0, "Bias": None, "RMSE": None,
-                             "Scatter Index": None, "R²": None, "Pearson r": None})
-                continue
-            s = res["stats"]
+def _pairwise_summary_rows(other: str) -> pd.DataFrame:
+    rows = []
+    for param in params_selected:
+        res = all_results.get((param, other))
+        info = describe_param(param)
+        if res is None:
             rows.append({
                 "Parameter": f"{param} ({info.label})",
-                "Unit": info.unit,
-                "N": s.n,
-                "Bias": round(s.bias, 4),
-                "MAE": round(s.mae, 4),
-                "RMSE": round(s.rmse, 4),
-                "Scatter Index": round(s.scatter_index, 4),
-                "R²": round(s.r_squared, 4),
-                "Pearson r": round(s.pearson_r, 4),
+                "N": 0, "Bias": None, "RMSE": None,
+                "Scatter Index": None, "R²": None, "Pearson r": None,
             })
-        st.markdown(f"**{ref_platform} vs {other}**")
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            continue
+        s = res["stats"]
+        rows.append({
+            "Parameter": f"{param} ({info.label})",
+            "Unit": info.unit,
+            "N": s.n,
+            "Bias": round(s.bias, 4),
+            "MAE": round(s.mae, 4),
+            "RMSE": round(s.rmse, 4),
+            "Scatter Index": round(s.scatter_index, 4),
+            "R²": round(s.r_squared, 4),
+            "Pearson r": round(s.pearson_r, 4),
+        })
+    return pd.DataFrame(rows)
 
-# ---------------- Deep dive tab ----------------
+
+# ---------------- Overview / Summary tab ----------------
+with tab_overview:
+    st.subheader(f"Pairwise agreement — {platform_b} vs {platform_a}")
+    st.dataframe(_pairwise_summary_rows(platform_b), use_container_width=True, hide_index=True)
+
+    extra_platforms = [p for p in other_platforms if p != platform_b]
+    if extra_platforms:
+        st.markdown("##### Other selected platforms vs reference")
+        st.caption("These extra comparisons use the same Platform A reference. Change Platform B above to focus a different pair.")
+        for other in extra_platforms:
+            st.markdown(f"**{platform_a} vs {other}**")
+            st.dataframe(_pairwise_summary_rows(other), use_container_width=True, hide_index=True)
+
+# ---------------- Deep dive / Time Series tab ----------------
 with tab_detail:
-    c1, c2 = st.columns(2)
-    with c1:
-        param = st.selectbox("Parameter", params_selected, format_func=lambda c: f"{c} — {describe_param(c).label}")
-    with c2:
-        other = st.selectbox("Compare against", other_platforms, key="detail_other")
+    param = st.selectbox("Parameter", params_selected, format_func=lambda c: f"{c} — {describe_param(c).label}")
+    other = platform_b
 
     res = all_results.get((param, other))
     info = describe_param(param)
@@ -260,13 +316,12 @@ with tab_detail:
 
 # ---------------- Distributions tab ----------------
 with tab_distrib:
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     with c1:
         param_d = st.selectbox("Parameter", params_selected, format_func=lambda c: f"{c} — {describe_param(c).label}", key="dist_param")
     with c2:
-        other_d = st.selectbox("Compare against", other_platforms, key="dist_other")
-    with c3:
         kind = st.selectbox("Plot type", ["histogram", "box", "violin"])
+    other_d = platform_b
 
     res = all_results.get((param_d, other_d))
     info = describe_param(param_d)
@@ -283,15 +338,14 @@ with tab_distrib:
 
 # ---------------- Period agreement tab ----------------
 with tab_period:
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         param_p = st.selectbox("Parameter", params_selected, format_func=lambda c: f"{c} — {describe_param(c).label}", key="period_param")
     with c2:
-        other_p = st.selectbox("Compare against", other_platforms, key="period_other")
-    with c3:
         freq = st.selectbox("Bin size", ["6h", "1D", "3D", "1W"], index=1)
-    with c4:
+    with c3:
         metric = st.selectbox("Metric", ["rmse", "bias", "mae", "scatter_index", "r_squared"])
+    other_p = platform_b
 
     res = all_results.get((param_p, other_p))
     info = describe_param(param_p)
@@ -308,8 +362,10 @@ with tab_period:
 # ---------------- Export tab ----------------
 with tab_export:
     st.subheader("Export results")
-    st.write("Export the multi-parameter summary table (for the currently selected reference + comparison platform) to Excel.")
-    other_e = st.selectbox("Comparison platform to export", other_platforms, key="export_other")
+    st.write(
+        f"Export the multi-parameter summary table for **{platform_a}** vs **{platform_b}** to Excel."
+    )
+    other_e = platform_b
 
     if st.button("Generate Excel report"):
         tables = {}
