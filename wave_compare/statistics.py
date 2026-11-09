@@ -65,8 +65,6 @@ def compute_comparison_stats(ref: pd.Series, comp: pd.Series) -> ComparisonStats
     scatter_index = float(rmse / ref_mean) if ref_mean != 0 else float("nan")
 
     pearson_r, _ = sp_stats.pearsonr(ref, comp) if np.std(ref) > 0 and np.std(comp) > 0 else (float("nan"), None)
-    pearson_r, _ = sp_stats.pearsonr(ref, comp) if np.std(ref) > 0 and np.std(comp) > 0 else (float("nan"), None)
-    spearman_r, _ = sp_stats.spearmanr(ref, comp) if np.std(ref) > 0 and np.std(comp) > 0 else (float("nan"), None)
     spearman_r, _ = sp_stats.spearmanr(ref, comp) if np.std(ref) > 0 and np.std(comp) > 0 else (float("nan"), None)
 
     if np.unique(ref).size > 1 and np.unique(comp).size > 1:
@@ -145,12 +143,71 @@ def time_binned_stats(
 # Rolling / time-based statistics
 # ---------------------------------------------------------------------------
 
-def rolling_stats(series: pd.Series, window: str = "6H") -> pd.DataFrame:
+def rolling_stats(series: pd.Series, window: str = "6h") -> pd.DataFrame:
     """Rolling mean and standard deviation over a time window.
 
-    ``series`` must be indexed by timestamp. A rolling SD that grows over
-    time (with mean roughly flat) is a classic noise/drift signature worth
-    flagging even before running formal drift tests.
+    ``series`` must be indexed by timestamp.
+
+    NaN handling
+    ------------
+    ``rolling().std()`` returns NaN for any sub-window that contains only
+    one observation (variance is undefined for n=1). Those NaN values in
+    the SD band break Plotly's ``fill="tonexty"`` shading — the filled area
+    simply does not render for the gap. We fill them with 0 so the band
+    collapses to the mean line at sparse points rather than disappearing.
+    This is visually honest: a window too narrow to have a spread is shown
+    as zero spread, not as a missing segment.
     """
-    roll = series.rolling(_freq(window))
-    return pd.DataFrame({"rolling_mean": roll.mean(), "rolling_std": roll.std()})
+    roll = series.rolling(_freq(window), min_periods=1)
+    mean = roll.mean()
+    std = roll.std().fillna(0)   # replace NaN SD with 0 to keep fill="tonexty" continuous
+    return pd.DataFrame({"rolling_mean": mean, "rolling_std": std})
+
+
+def periodic_stats(df: pd.DataFrame, parameter: str, freq: str = "ME") -> pd.DataFrame:
+    """Per-period (monthly by default) descriptive stats for each platform.
+
+    Parameters
+    ----------
+    df : tidy long-format DataFrame with columns timestamp, platform, <parameter>
+    parameter : column to summarise
+    freq : pandas offset alias for the period bin — "ME" (month-end, pandas ≥2.2)
+           is the default; the _freq shim is applied so "M" also works on
+           older pandas. Any other resample-compatible alias is accepted.
+
+    Returns
+    -------
+    DataFrame with columns: period (bin label), platform, n, mean, std,
+    min, p25, median, p75, max.
+    """
+    if parameter not in df.columns:
+        return pd.DataFrame()
+
+    rows = []
+    for platform, grp in df.groupby("platform"):
+        series = (
+            grp[["timestamp", parameter]]
+            .dropna(subset=[parameter])
+            .set_index("timestamp")[parameter]
+            .sort_index()
+        )
+        if series.empty:
+            continue
+        resampled = series.resample(_freq(freq))
+        for period, chunk in resampled:
+            chunk = chunk.dropna()
+            if chunk.empty:
+                continue
+            rows.append({
+                "period": period,
+                "platform": platform,
+                "n": int(chunk.count()),
+                "mean": float(chunk.mean()),
+                "std": float(chunk.std()) if len(chunk) > 1 else 0.0,
+                "min": float(chunk.min()),
+                "p25": float(chunk.quantile(0.25)),
+                "median": float(chunk.median()),
+                "p75": float(chunk.quantile(0.75)),
+                "max": float(chunk.max()),
+            })
+    return pd.DataFrame(rows)
