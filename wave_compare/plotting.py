@@ -16,8 +16,21 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from .statistics import ComparisonStats
+from . import statistics as stats_mod
+from .config import describe_param
 
 TEMPLATE = "plotly_white"
+_TEMPLATE = TEMPLATE   # alias used by some functions
+
+
+def _unit_label(parameter: str) -> str:
+    """Return 'Label (unit)' for a known parameter, or just the column name."""
+    info = describe_param(parameter)
+    if info.label and info.unit:
+        return f"{info.label} ({info.unit})"
+    if info.label:
+        return info.label
+    return parameter
 
 
 def time_series_overlay(
@@ -49,6 +62,84 @@ def difference_series(df_wide: pd.DataFrame, ref: str, comp: str, label: str, un
         xaxis_title="Time",
         yaxis_title=f"Δ {label} ({unit})" if unit else f"Δ {label}",
         template=TEMPLATE,
+    )
+    return fig
+
+
+def rolling_mean_difference(
+    df_wide: pd.DataFrame,
+    ref: str,
+    comp: str,
+    label: str,
+    unit: str = "",
+    window: str = "1D",
+) -> go.Figure:
+    """Rolling mean ± SD of (comp − ref).
+
+    The ±SD shaded band uses Plotly's fill="tonexty" technique, which
+    requires BOTH band traces to be free of NaN breaks.  rolling().std()
+    returns NaN for any sub-window with only one observation, which causes
+    the fill to disappear silently for shorter windows (1D, 3D).
+
+    The fix lives in statistics.rolling_stats(): NaN SD values are replaced
+    with 0 (min_periods=1 already keeps the mean continuous), so the band
+    collapses to the mean line at sparse points rather than breaking.
+    """
+    diff = df_wide[comp] - df_wide[ref]
+    tmp = pd.DataFrame({
+        "timestamp": df_wide["timestamp"],
+        "diff": diff,
+    })
+    tmp = tmp.sort_values("timestamp")
+
+    rolling = stats_mod.rolling_stats(
+        tmp.set_index("timestamp")["diff"],
+        window=window,
+    ).reset_index()
+
+    upper = rolling["rolling_mean"] + rolling["rolling_std"]
+    lower = rolling["rolling_mean"] - rolling["rolling_std"]
+
+    fig = go.Figure()
+
+    # Upper band boundary (invisible line — just sets the ceiling for fill)
+    fig.add_trace(go.Scatter(
+        x=rolling["timestamp"],
+        y=upper,
+        mode="lines",
+        line=dict(width=0),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # Lower band boundary — filled back to the upper trace
+    fig.add_trace(go.Scatter(
+        x=rolling["timestamp"],
+        y=lower,
+        mode="lines",
+        line=dict(width=0),
+        fill="tonexty",
+        fillcolor="rgba(214,39,40,0.2)",
+        name="±1 SD",
+    ))
+
+    # Rolling mean line on top
+    fig.add_trace(go.Scatter(
+        x=rolling["timestamp"],
+        y=rolling["rolling_mean"],
+        mode="lines",
+        name=f"{window} rolling mean",
+        line=dict(color="#d62728", width=2),
+    ))
+
+    fig.add_hline(y=0, line_dash="dash", line_color="gray")
+
+    fig.update_layout(
+        title=f"{label} — Rolling Mean Difference ± SD ({comp} − {ref}, {window})",
+        xaxis_title="Time",
+        yaxis_title=f"Δ {label} ({unit})" if unit else f"Δ {label}",
+        template=TEMPLATE,
+        hovermode="x unified",
     )
     return fig
 
@@ -159,4 +250,45 @@ def multi_param_summary_table(rows: list, label_col: str = "Parameter") -> go.Fi
         cells=dict(values=[df[c] for c in df.columns], align="left"),
     )])
     fig.update_layout(title="Multi-Parameter Summary", template=TEMPLATE)
+    return fig
+
+
+def monthly_summary_plot(df: pd.DataFrame, parameter: str) -> go.Figure:
+    """Monthly mean per platform with min–max whiskers, as an error-bar plot.
+
+    Uses ``periodic_stats`` with freq="ME" (month-end) to aggregate each
+    platform's readings into monthly bins, then plots mean ± min/max range
+    as error bars so over- or under-reading in a given month is immediately
+    visible.
+    """
+    monthly = stats_mod.periodic_stats(df, parameter, freq="ME")
+    if monthly.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+    for platform, sub in monthly.groupby("platform"):
+        sub = sub.sort_values("period")
+        fig.add_trace(go.Scatter(
+            x=sub["period"],
+            y=sub["mean"],
+            mode="lines+markers",
+            name=platform,
+            error_y=dict(
+                type="data",
+                array=(sub["max"] - sub["mean"]).tolist(),
+                arrayminus=(sub["mean"] - sub["min"]).tolist(),
+                visible=True,
+                thickness=1.5,
+                width=4,
+            ),
+        ))
+
+    fig.update_layout(
+        template=_TEMPLATE,
+        title=f"{_unit_label(parameter)} — Monthly summary (mean + min–max range)",
+        xaxis_title="Month",
+        yaxis_title=_unit_label(parameter),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+    )
     return fig

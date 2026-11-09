@@ -14,6 +14,7 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
+from ._pandas_compact import freq as _freq
 
 
 @dataclass
@@ -77,13 +78,6 @@ def compute_comparison_stats(ref: pd.Series, comp: pd.Series) -> ComparisonStats
     else:
         slope = intercept = r_squared = float("nan")
 
-    '''
-    if np.std(ref) > 0 and np.std(comp) > 0:
-        slope, intercept, r_value, _, _ = sp_stats.linregress(ref, comp)
-        r_squared = float(r_value ** 2)
-    else:
-        slope, intercept, r_squared = float("nan"), float("nan"), float("nan")
-    '''
     loa_bias = float(np.mean(diff))
     loa_sd = float(np.std(diff, ddof=1)) if n > 1 else float("nan")
     loa_lower = loa_bias - 1.96 * loa_sd
@@ -145,3 +139,18 @@ def time_binned_stats(
         row = {"bin_start": bin_start, **stats_obj.to_dict()}
         out_rows.append(row)
     return pd.DataFrame(out_rows)
+
+
+# ---------------------------------------------------------------------------
+# Rolling / time-based statistics
+# ---------------------------------------------------------------------------
+
+def rolling_stats(series: pd.Series, window: str = "6H") -> pd.DataFrame:
+    """Rolling mean and standard deviation over a time window.
+
+    ``series`` must be indexed by timestamp. A rolling SD that grows over
+    time (with mean roughly flat) is a classic noise/drift signature worth
+    flagging even before running formal drift tests.
+    """
+    roll = series.rolling(_freq(window))
+    return pd.DataFrame({"rolling_mean": roll.mean(), "rolling_std": roll.std()})
