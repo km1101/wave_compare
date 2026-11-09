@@ -309,7 +309,15 @@ with tab_detail:
             st.plotly_chart(plotting.scatter_with_fit(wide, ref_platform, other, s, info.label, info.unit), use_container_width=True)
         with cc2:
             st.plotly_chart(plotting.bland_altman(wide, ref_platform, other, s, info.label, info.unit), use_container_width=True)
-        st.plotly_chart(plotting.difference_series(wide, ref_platform, other, info.label, info.unit), use_container_width=True)
+        diff_col1, diff_col2 = st.columns(2)
+        with diff_col1:
+            st.plotly_chart(plotting.difference_series(wide, ref_platform, other, info.label, info.unit), use_container_width=True)
+        with diff_col2:
+            roll_window = st.select_slider("Rolling window", options=["1h", "3h", "6h", "12h", "1D", "3D", "7D", "14D", "30D"], value="1D", key="roll_window")
+            st.plotly_chart(plotting.rolling_mean_difference(wide, ref_platform, other, info.label, info.unit, window=roll_window), use_container_width=True)
+
+        st.markdown("#### Monthly Summary")
+        st.plotly_chart(plotting.monthly_summary_plot(df, param), use_container_width=True)
 
         with st.expander("Full statistics"):
             st.json(s.to_dict())
