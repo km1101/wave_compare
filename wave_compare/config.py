@@ -79,7 +79,7 @@ PARAMETER_CATALOG: Dict[str, ParamInfo] = {
     "WMSpr":      ParamInfo("WMSpr", "Mean Directional Spread", "deg", "other"),
 }
 
-DEFAULT_PARAMETERS = ["H13", "Tz", "Hmax", "Tmax", "Hswell", "Tswell"]
+DEFAULT_PARAMETERS = ["H13", "Tz", "Hmax", "Tmax", "Hswell", "Tswell","Hwind", "Twind","WPDir","WMDir","WPDirSwell","WPDirWind","WMSpr"]
 ID_COLUMNS = ["MotusID", "AWSID"]
 TIME_COLUMNS = ["Year", "Month", "Day", "Hour", "Minute"]
 
