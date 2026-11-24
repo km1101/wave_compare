@@ -57,16 +57,6 @@ You can edit this file directly, edit the mapping in the sidebar
 `id,name` columns, or JSON) — the dashboard isn't hard-coded to these two
 platforms or IDs, so new data with unique ID can be uploaded.
 
-## What "significant wave" means here
-
-**every numeric column in the CSV is selectable** — including `Hmax`,
-`Tmax`, `Hswell`, `Tswell`, `Hwind`, `Twind`, `Hm0`, `Tp`, `Tm02`,
-`Hcrest`, `Htrough`, and the directional spread/peak/mean direction
-columns. Add or remove parameters from the catalog in
-`wave_compare/config.py` (`PARAMETER_CATALOG`) to change labels/units, or
-just pick any other column straight from the sidebar — unrecognised
-columns still work, they just get a generic label.
-
 ## Dashboard layout
 
 - **Multi-Parameter Overview** — one summary table per comparison platform
