@@ -19,7 +19,7 @@ streamlit run dashboard.py
 Then open the URL Streamlit prints (usually http://localhost:8501).
 
 
-
+## Project layout
 ```
 wave_compare/
 ├── dashboard.py              # Streamlit app (entry point)
@@ -89,7 +89,21 @@ match within N minutes/hours), and optionally remove outliers (IQR,
 z-score, or Hampel filter — good for spiky buoy spikes).
 
 
-## Project layout
+
+
+
+## Extending
+
+- **More platforms**: add another `id: name` pair to the mapping; the
+  multiselect and pairwise comparisons (reference = first platform
+  selected) pick it up automatically.
+- **More parameters**: any numeric column works out of the box; add an
+  entry to `PARAMETER_CATALOG` in `wave_compare/config.py` to give it a
+  friendly label/unit/category.
+- **A model/hindcast as a third "platform"**: adapt its output into the
+  same long-format shape (`timestamp`, `platform`, parameter columns) and
+  concatenate it onto the loaded DataFrame before passing it to the rest
+  of the pipeline — nothing else needs to change.
 
 
 The `wave_compare` package has no Streamlit dependency itself — every
