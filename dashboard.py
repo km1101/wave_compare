@@ -23,6 +23,7 @@ Features
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -42,6 +43,7 @@ from wave_compare.export import export_stats_excel
 
 st.set_page_config(page_title="Wave Platform Comparison", layout="wide", page_icon="🌊")
 
+DATE_FMT = "%d/%m/%Y"  # spec: dates must display as dd/mm/yyyy
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_CSV = DATA_DIR / "wave_data.csv"
 EXPORT_DIR = Path(__file__).resolve().parent / "exports"
@@ -190,6 +192,7 @@ date_min, date_max = df["timestamp"].min(), df["timestamp"].max()
 date_range = st.sidebar.date_input(
     "Date range", value=(date_min.date(), date_max.date()),
     min_value=date_min.date(), max_value=date_max.date(),
+    format="DD/MM/YYYY",
 )
 
 tolerance = st.sidebar.select_slider(
